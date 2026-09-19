@@ -16,6 +16,7 @@
 #include "SGitSourceControlSettings.h"
 #include "GitSourceControlRunner.h"
 #include "GitSourceControlChangelistState.h"
+#include "GitStaleLocks.h"
 #include "Logging/MessageLog.h"
 #include "ScopedSourceControlProgress.h"
 #include "SourceControlHelpers.h"
@@ -192,6 +193,14 @@ void FGitSourceControlProvider::CheckRepositoryStatus()
 				}
 				Runner = new FGitSourceControlRunner();
 				bGitRepositoryFound = true;
+
+				// Locks left behind by changes submitted outside of the Editor: offer to release them, once per session
+				static bool bStaleLocksChecked = false;
+				if (!bStaleLocksChecked && bUsingGitLfsLocking)
+				{
+					bStaleLocksChecked = true;
+					GitStaleLocks::CheckForStaleLocks(/*bIsStartupCheck=*/true);
+				}
 			};
 			if (FApp::IsUnattended() || IsRunningCommandlet())
 			{

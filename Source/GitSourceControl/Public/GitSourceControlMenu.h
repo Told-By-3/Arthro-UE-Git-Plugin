@@ -25,6 +25,7 @@ public:
 	void SyncClicked();
 	void RevertClicked();
 	void RefreshClicked();
+	void ReleaseStaleLocksClicked();
 
 protected:
 	static void RevertAllCallback(const FSourceControlOperationRef& InOperation, ECommandResult::Type InResult);
@@ -33,6 +34,7 @@ protected:
 private:
 	bool HaveRemoteUrl() const;
 	bool CanCommit() const;
+	bool IsUsingLfsLocking() const;
 
 	bool SaveDirtyPackages();
 

@@ -16,6 +16,7 @@ public class GitSourceControl : ModuleRules
 				"Slate",
 				"SlateCore",
 				"InputCore",
+				"Json",
 				"DesktopWidgets",
 				"EditorStyle",
 				"UnrealEd",

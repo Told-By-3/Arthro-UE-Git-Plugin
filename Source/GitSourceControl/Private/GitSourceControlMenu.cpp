@@ -10,6 +10,7 @@
 #include "GitSourceControlProvider.h"
 #include "GitSourceControlOperations.h"
 #include "GitSourceControlUtils.h"
+#include "GitStaleLocks.h"
 
 #include "ISourceControlModule.h"
 #include "ISourceControlOperation.h"
@@ -401,6 +402,17 @@ void FGitSourceControlMenu::RevertAllCallback(const FSourceControlOperationRef& 
 #endif
 }
 
+void FGitSourceControlMenu::ReleaseStaleLocksClicked()
+{
+	GitStaleLocks::CheckForStaleLocks(/*bIsStartupCheck=*/false);
+}
+
+bool FGitSourceControlMenu::IsUsingLfsLocking() const
+{
+	const FGitSourceControlModule& GitSourceControl = FGitSourceControlModule::Get();
+	return GitSourceControl.GetProvider().UsesCheckout();
+}
+
 void FGitSourceControlMenu::RefreshClicked()
 {
 	if (!OperationInProgressNotification.IsValid())
@@ -622,6 +634,23 @@ void FGitSourceControlMenu::AddMenuExtension(FMenuBuilder& Builder)
 		FUIAction(
 			FExecuteAction::CreateRaw(this, &FGitSourceControlMenu::RefreshClicked),
 			FCanExecuteAction()
+		)
+	);
+
+	Builder.AddMenuEntry(
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 0, 0)
+		"GitReleaseStaleLocks",
+#endif
+		LOCTEXT("GitReleaseStaleLocks",			"Release Stale Locks..."),
+		LOCTEXT("GitReleaseStaleLocksTooltip",	"Find your Git LFS locks on files without local changes, e.g. left behind by changes submitted from outside the Editor, and choose which ones to release."),
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 1, 0)
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Unlock"),
+#else
+		FSlateIcon(FEditorStyle::GetStyleSetName(), "PropertyWindow.Unlocked"),
+#endif
+		FUIAction(
+			FExecuteAction::CreateRaw(this, &FGitSourceControlMenu::ReleaseStaleLocksClicked),
+			FCanExecuteAction::CreateRaw(this, &FGitSourceControlMenu::IsUsingLfsLocking)
 		)
 	);
 }
