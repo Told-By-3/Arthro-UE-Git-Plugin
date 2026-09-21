@@ -122,6 +122,17 @@ namespace
 		}
 		AddPathsFromResults(Results, OutPaths);
 
+		// Files that exist locally but have never been staged: a newly created asset is untracked until
+		// the first 'git add', and 'git diff HEAD' cannot see it. Without this, a lock taken on a brand
+		// new asset looks stale the moment it is taken, which is exactly when it is most needed.
+		Results.Reset();
+		const TArray<FString> UntrackedParameters{TEXT("--others"), TEXT("--exclude-standard")};
+		if (!GitSourceControlUtils::RunCommand(TEXT("-c core.quotepath=off ls-files"), InPathToGitBinary, InRepositoryRoot, UntrackedParameters, FGitSourceControlModule::GetEmptyStringArray(), Results, OutErrorMessages))
+		{
+			return false;
+		}
+		AddPathsFromResults(Results, OutPaths);
+
 		return true;
 	}
 
@@ -308,9 +319,40 @@ bool FindStaleLocks(const FString& InPathToGitBinary, const FString& InRepositor
 
 void ReleaseLocks(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const TArray<FGitStaleLock>& InLocks, TArray<FGitStaleLock>& OutReleased, TArray<FString>& OutErrorMessages)
 {
+	// The dialog may have been open for a while, so re-check the work in progress right before unlocking,
+	// rather than relying on 'git lfs unlock' refusing to release a modified file: that refusal only covers
+	// files modified against HEAD, and says nothing about an untracked one. A new asset created while the
+	// dialog was open would otherwise be unlocked and left read-only, with the Editor unable to save it.
+	TSet<FString> WorkInProgressPaths;
+	TArray<FString> WorkInProgressErrors;
+	if (!GetWorkInProgressPaths(InPathToGitBinary, InRepositoryRoot, WorkInProgressPaths, WorkInProgressErrors))
+	{
+		OutErrorMessages.Append(WorkInProgressErrors);
+		OutErrorMessages.Add(TEXT("Unable to confirm which files have local work in progress: no lock was released."));
+		return;
+	}
+
+	TArray<FGitStaleLock> LocksToRelease;
+	LocksToRelease.Reserve(InLocks.Num());
+	for (const FGitStaleLock& Lock : InLocks)
+	{
+		if (WorkInProgressPaths.Contains(Lock.Path))
+		{
+			OutErrorMessages.Add(FString::Printf(TEXT("Keeping the lock on '%s': it has local work in progress."), *Lock.Path));
+		}
+		else
+		{
+			LocksToRelease.Add(Lock);
+		}
+	}
+	if (LocksToRelease.Num() == 0)
+	{
+		return;
+	}
+
 	TArray<FString> PathsOnDisk;
 	TArray<const FGitStaleLock*> LocksWithoutFile;
-	for (const FGitStaleLock& Lock : InLocks)
+	for (const FGitStaleLock& Lock : LocksToRelease)
 	{
 		if (FPaths::FileExists(FPaths::ConvertRelativePathToFull(InRepositoryRoot, Lock.Path)))
 		{
@@ -326,8 +368,8 @@ void ReleaseLocks(const FString& InPathToGitBinary, const FString& InRepositoryR
 	bool bCommandsSucceeded = true;
 	if (PathsOnDisk.Num() > 0)
 	{
-		// Unlock by path without --force: Git LFS refuses to unlock a modified file,
-		// a last safeguard against edits made while the dialog was open
+		// Unlock by path without --force, keeping Git LFS's own refusal to release a modified file
+		// as a second line of defence behind the work in progress re-check above
 		bCommandsSucceeded &= GitSourceControlUtils::RunLFSCommand(TEXT("unlock"), InRepositoryRoot, InPathToGitBinary, FGitSourceControlModule::GetEmptyStringArray(), PathsOnDisk, InfoMessages, OutErrorMessages);
 	}
 	for (const FGitStaleLock* Lock : LocksWithoutFile)
@@ -347,7 +389,7 @@ void ReleaseLocks(const FString& InPathToGitBinary, const FString& InRepositoryR
 		{
 			RemainingIds.Add(Lock.Id);
 		}
-		for (const FGitStaleLock& Lock : InLocks)
+		for (const FGitStaleLock& Lock : LocksToRelease)
 		{
 			if (!RemainingIds.Contains(Lock.Id))
 			{
@@ -357,7 +399,7 @@ void ReleaseLocks(const FString& InPathToGitBinary, const FString& InRepositoryR
 	}
 	else if (bCommandsSucceeded)
 	{
-		OutReleased = InLocks;
+		OutReleased = LocksToRelease;
 	}
 }
 
