@@ -405,7 +405,16 @@ void ReleaseLocks(const FString& InPathToGitBinary, const FString& InRepositoryR
 
 void CheckForStaleLocks(bool bIsStartupCheck)
 {
-	check(IsInGameThread());
+	// TB3 BEGIN CUSTOM - can be reached off the game thread (CheckRepositoryStatus runs SuccessFunc synchronously on its worker when unattended/commandlet); hop instead of asserting
+	if (!IsInGameThread())
+	{
+		AsyncTask(ENamedThreads::GameThread, [bIsStartupCheck]()
+		{
+			CheckForStaleLocks(bIsStartupCheck);
+		});
+		return;
+	}
+	// TB3 END CUSTOM
 
 	if (FApp::IsUnattended() || IsRunningCommandlet() || !FSlateApplication::IsInitialized())
 	{
