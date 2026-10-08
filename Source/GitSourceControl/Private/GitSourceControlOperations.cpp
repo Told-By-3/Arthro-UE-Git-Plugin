@@ -517,6 +517,11 @@ FName FGitRevertWorker::GetName() const
 
 bool FGitRevertWorker::Execute(FGitSourceControlCommand& InCommand)
 {
+	// A path checkout fires git-lfs's post-checkout hook with flag 0, which can't tell which files were touched and so
+	// re-applies write flags across the whole repo: every lockable file not locked by us goes read-only, including
+	// unrelated newly "Added" assets, which then fail to save. Skip hooks; unlocking below restores read-only on reverted files.
+	static const FString CheckoutWithoutHooks = TEXT("-c core.hooksPath=/dev/null checkout");
+
 	InCommand.bCommandSuccessful = true;
 
 	// Filter files by status
@@ -548,7 +553,7 @@ bool FGitRevertWorker::Execute(FGitSourceControlCommand& InCommand)
 		{
 			// reset and revert any changes already added to the index
 			InCommand.bCommandSuccessful &= GitSourceControlUtils::RunCommand(TEXT("reset"), InCommand.PathToGitBinary, InCommand.PathToRepositoryRoot, FGitSourceControlModule::GetEmptyStringArray(), AllExistingFiles, InCommand.ResultInfo.InfoMessages, InCommand.ResultInfo.ErrorMessages);
-			InCommand.bCommandSuccessful &= GitSourceControlUtils::RunCommand(TEXT("checkout"), InCommand.PathToGitBinary, InCommand.PathToRepositoryRoot, FGitSourceControlModule::GetEmptyStringArray(), AllExistingFiles, InCommand.ResultInfo.InfoMessages, InCommand.ResultInfo.ErrorMessages);
+			InCommand.bCommandSuccessful &= GitSourceControlUtils::RunCommand(CheckoutWithoutHooks, InCommand.PathToGitBinary, InCommand.PathToRepositoryRoot, FGitSourceControlModule::GetEmptyStringArray(), AllExistingFiles, InCommand.ResultInfo.InfoMessages, InCommand.ResultInfo.ErrorMessages);
 		}
 		if (OtherThanAddedExistingFiles.Num() > 0)
 		{
@@ -558,7 +563,7 @@ bool FGitRevertWorker::Execute(FGitSourceControlCommand& InCommand)
 			int32 Attempts = 10;
 			while( Attempts-- > 0 )
 			{
-				CheckoutSuccess = GitSourceControlUtils::RunCommand(TEXT("checkout"), InCommand.PathToGitBinary, InCommand.PathToRepositoryRoot, FGitSourceControlModule::GetEmptyStringArray(), OtherThanAddedExistingFiles, InCommand.ResultInfo.InfoMessages, InCommand.ResultInfo.ErrorMessages);
+				CheckoutSuccess = GitSourceControlUtils::RunCommand(CheckoutWithoutHooks, InCommand.PathToGitBinary, InCommand.PathToRepositoryRoot, FGitSourceControlModule::GetEmptyStringArray(), OtherThanAddedExistingFiles, InCommand.ResultInfo.InfoMessages, InCommand.ResultInfo.ErrorMessages);
 				if (CheckoutSuccess)
 				{
 					break;
