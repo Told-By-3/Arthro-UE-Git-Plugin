@@ -1403,6 +1403,14 @@ static void ParseFileStatusResult(const FString& InPathToGitBinary, const FStrin
 #if UE_BUILD_DEBUG && GIT_DEBUG_STATUS
 					UE_LOG(LogSourceControl, Log, TEXT("Status(%s) Not Locked"), *File);
 #endif
+					// git-lfs hooks that rescan the index (post-merge, path checkout) make unlocked Added files read-only too,
+					// and the Editor offers no Check Out or Make Writable for them, so saves fail: restore the write flag.
+					IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+					if (FileState.IsAdded() && PlatformFile.IsReadOnly(*File))
+					{
+						PlatformFile.SetReadOnly(*File, false);
+						UE_LOG(LogSourceControl, Log, TEXT("Made '%s' writable again: it is Added, but Git LFS had set it read-only"), *File);
+					}
 				}
 			}
 			else
